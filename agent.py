@@ -23,6 +23,7 @@ logging.basicConfig(filename="log.log", level=logging.INFO, filemode="w")
 
 
 def find_closest_resource_tile(player: Player, pawn: Pawn) -> Optional[Tile]:
+    # TODO check if it can reach resource tile
     closest_dist = math.inf
     closest_resource_tile = None
     for resource_tile in gameboard.resource_tiles:
@@ -37,7 +38,8 @@ def find_closest_resource_tile(player: Player, pawn: Pawn) -> Optional[Tile]:
     return closest_resource_tile
 
 
-def find_path_to_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
+def find_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
+    # TODO check if it can reach empty tile
     closest_dist = math.inf
     closest_empty_tile = None
     for x in range(gameboard.width):
@@ -67,6 +69,10 @@ def cities_have_enough_foul() -> bool:
     return True
 
 
+def cities_going_to_have_enough_foul() -> bool:
+    return True
+
+
 def can_move_to(ownPawn: Pawn, dir: DIRECTIONS) -> bool:
     """
     Check if the unit `ownUnit` can move in direction `dir` 1 step.
@@ -76,12 +82,18 @@ def can_move_to(ownPawn: Pawn, dir: DIRECTIONS) -> bool:
     tile = gameboard.get_tile_by_pos(endPosition)
     for pawn in gameboard.pawns:
         if pawn.next_move.x == endPosition.x and pawn.next_move.y == endPosition.y:
-            if tile.has_city() or tile.team != pawn.team:
+            if not tile.has_city() or tile.team != pawn.team:
                 return False
+        elif tile.has_city() and tile.team != pawn.team:
+            return False
     actions.append(annotate.line(ownPawn.pos.x, ownPawn.pos.y, endPosition.x, endPosition.y))
     logging.info(f"Moving unit {ownPawn.id} to {endPosition.y}, {endPosition.x}")
     ownPawn.next_move = endPosition
     return True
+
+
+def is_night():
+    return (moveCount % 40) >= 30
 
 
 def agent(observation, configuration):
@@ -90,10 +102,11 @@ def agent(observation, configuration):
     global gameboard
     global moveCount
 
-    # if moveCount == 0:
-    #     time.sleep(10)
+    hardCityLimit = 24
+    hardUnitLimit = 8
 
-    moveCount += 1
+    if moveCount == 0:
+        time.sleep(5)
 
     ### Do not edit ###
     if observation["step"] == 0:
@@ -113,12 +126,17 @@ def agent(observation, configuration):
     actions = []
     gameboard = GameBoard(game_state, observation)
 
-    # we iterate over all our units and do something with them
     for pawn in gameboard.own_pawns:
         if pawn.is_worker() and pawn.can_act():
-            if pawn.get_cargo_space_left() == 0 and cities_have_enough_foul():
+            if (
+                pawn.get_cargo_space_left() == 0
+                and cities_have_enough_foul()
+                and cities_going_to_have_enough_foul()
+                and hardCityLimit > player.city_tile_count
+                and not is_night()
+            ):
                 # try and build city
-                closest_empty_tile = find_path_to_closest_empty_tile_next_to_city(pawn)
+                closest_empty_tile = find_closest_empty_tile_next_to_city(pawn)
                 if pawn.can_build(game_state.map):
                     logging.info(
                         f"Trying to build city with {pawn}, Can build {pawn.can_build(game_state.map)}, Unit is at"
@@ -151,11 +169,11 @@ def agent(observation, configuration):
                         actions.append(pawn.move(pawn.pos.direction_to(closest_city_tile.pos)))
     for id, city in player.cities.items():
         for tile in city.citytiles:
-            if tile.can_act() and player.city_tile_count > cart_count + worker_count:
+            if tile.can_act() and player.city_tile_count > cart_count + worker_count and worker_count < hardUnitLimit:
                 actions.append(tile.build_worker())
-            elif tile.can_act() and player.city_tile_count > cart_count + worker_count:
-                actions.append(tile.build_cart())
+                worker_count += 1
             elif tile.can_act():
                 actions.append(tile.research())
 
+    moveCount += 1
     return actions

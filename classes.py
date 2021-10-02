@@ -31,8 +31,8 @@ class Pawn:
     def get_cargo_space_left(self) -> int:
         return self.unit.get_cargo_space_left()
     
-    def build_city(self) -> None:
-        self.unit.build_city()
+    def build_city(self) -> str:
+        return self.unit.build_city()
     
     def move(self, dir: DIRECTIONS) -> str:
         return self.unit.move(dir)
