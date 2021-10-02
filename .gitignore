@@ -1,0 +1,6 @@
+*.tar.gz
+errorlogs
+replays
+__pycache__
+log.log
+replay.json
