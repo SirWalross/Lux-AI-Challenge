@@ -6,7 +6,7 @@
         {
             "label": "Run Lux",
             "type": "shell",
-            "command": "lux-ai-2021 main.py main.py --python=python3 --out=replay.json --width 14 --height 14 --maxtime 10000000 --seed 2",
+            "command": "lux-ai-2021 main.py main2.py --python=python3 --out=replay.json --width 12 --height 12 --maxtime 10000000 --seed 3",
             "problemMatcher": [],
             "group": {
                 "kind": "build",

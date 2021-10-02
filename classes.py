@@ -1,5 +1,5 @@
 from typing import List, Optional
-from lux.game import Game
+from lux.game import Game, City
 from lux.game_objects import CityTile, Player, Unit
 from lux.game_map import DIRECTIONS, Cell, RESOURCE_TYPES, GameMap, Position
 
@@ -44,7 +44,7 @@ class Tile:
         self.resource = cell.resource
         self.pos = cell.pos
         self.team = 0 if cell.citytile is None else cell.citytile.team
-        self.citytile = cell.citytile
+        self.citytile: Optional[CityTile] = cell.citytile
 
     def has_resource(self) -> bool:
         return self.cell.has_resource()
@@ -61,9 +61,13 @@ class GameBoard:
         self.tiles: List[Tile] = [Tile(self.map.get_cell(x, y)) for x in range(self.width) for y in range(self.height)]
         self.resource_tiles = list(filter(lambda tile: tile.has_resource(), self.tiles))
         self.city_tiles = list(filter(lambda tile: tile.has_city(), self.tiles))
+        self.own_city_tiles = list(filter(lambda city_tile: city_tile.team == observation.player, self.city_tiles))
+        self.enemy_city_tiles = list(filter(lambda city_tile: city_tile.team != observation.player, self.city_tiles))
         self.pawns = [Pawn(unit) for unit in [*game_state.players[0].units, *game_state.players[1].units]]
         self.own_pawns = list(filter(lambda pawn: pawn.team == observation.player, self.pawns))
         self.enemy_pawns = list(filter(lambda pawn: pawn.team != observation.player, self.pawns))
+        self.own_cities = game_state.players[observation.player].cities
+        self.enemy_cities = game_state.players[(observation.player + 1) % 2].cities
 
     def get_tile(self, x, y) -> Tile:
         return self.tiles[y + x * self.width]

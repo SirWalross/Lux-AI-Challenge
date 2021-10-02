@@ -82,37 +82,11 @@ def find_closest_city(pawn: Pawn, excludeDir: List[DIRECTIONS] = None) -> Option
 
 
 def cities_have_enough_foul(pawn: Pawn) -> bool:
-    # is not night so can assume fuel needed is for 10 moves
-    closest_city_tile = find_closest_city(pawn)
-    for id, city in gameboard.own_cities.items():
-        if (
-            city.get_light_upkeep() * 10 > city.fuel
-            and closest_city_tile is not None
-            and id == closest_city_tile.citytile.cityid
-        ):
-            return False
     return True
 
 
 def cities_going_to_have_enough_foul(player: Player, pawn: Pawn) -> bool:
-    # first check the proximity for amount of foul
-    radius = gameboard.width // 4
-    amount_of_fuel = 0
-    for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
-        for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
-            if in_range(x, y) and gameboard.get_tile(x, y).has_resource():
-                resource = gameboard.get_tile(x, y).resource
-                if has_access_to_resource(resource, player):
-                    amount_of_fuel += resource.amount
-    amount_of_fuel_needed = 0
-    for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
-        for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
-            if in_range(x, y) and gameboard.get_tile(x, y).has_city():
-                city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
-                if city is not None:
-                    amount_of_fuel_needed += city.get_light_upkeep() * night_moves_left()
-
-    return amount_of_fuel > amount_of_fuel_needed
+    return True
 
 
 def in_range(x: int, y: int):
