@@ -63,7 +63,7 @@ class GameBoard:
         self.city_tiles = list(filter(lambda tile: tile.has_city(), self.tiles))
         self.pawns = [Pawn(unit) for unit in [*game_state.players[0].units, *game_state.players[1].units]]
         self.own_pawns = list(filter(lambda pawn: pawn.team == observation.player, self.pawns))
-        self.own_units = list(filter(lambda pawn: pawn.team != observation.player, self.pawns))
+        self.enemy_pawns = list(filter(lambda pawn: pawn.team != observation.player, self.pawns))
 
     def get_tile(self, x, y) -> Tile:
         return self.tiles[y + x * self.width]

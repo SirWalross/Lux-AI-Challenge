@@ -90,8 +90,8 @@ def agent(observation, configuration):
     global gameboard
     global moveCount
 
-    if moveCount == 0:
-        time.sleep(10)
+    # if moveCount == 0:
+    #     time.sleep(10)
 
     moveCount += 1
 

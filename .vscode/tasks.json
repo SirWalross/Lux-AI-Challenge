@@ -4,9 +4,20 @@
     "version": "2.0.0",
     "tasks": [
         {
-            "label": "echo",
+            "label": "Run Lux",
             "type": "shell",
-            "command": "echo Hello"
+            "command": "lux-ai-2021 main.py main.py --python=python3 --out=replay.json --width 14 --height 14 --maxtime 10000000",
+            "problemMatcher": [],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
+        },
+        {
+            "label": "Upload Lux",
+            "type": "shell",
+            "command": "rm -f simple.tar.gz && tar -czf simple.tar.gz lux __init__.py main.py classes.py agent.py && kaggle competitions submit -c lux-ai-2021 -f simple.tar.gz -m \"Submission\"",
+            "problemMatcher": []
         }
     ]
 }
