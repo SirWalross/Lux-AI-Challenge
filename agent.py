@@ -18,22 +18,76 @@ game_state = None
 actions = []
 gameboard: GameBoard = None
 moveCount = 0
+wood_position = None
+coal_position = None
 
 logging.basicConfig(filename="log.log", level=logging.INFO, filemode="w")
 
 
-def find_closest_resource_tile(player: Player, pawn: Pawn) -> Optional[Tile]:
+def find_tile(pawn: Pawn, radius: int, type: RESOURCE_TYPES) -> Optional[Position]:
+    global wood_position
+    closest_dist = math.inf
+    closest_resource_tile = None
+    for resource_tile in gameboard.resource_tiles:
+        if resource_tile.resource.type != type:
+            continue
+        dist = resource_tile.pos.distance_to(pawn.pos)
+        if dist < closest_dist and dist > radius:
+            closest_dist = dist
+            closest_resource_tile = resource_tile
+    return closest_resource_tile.pos if closest_resource_tile is not None else None
+
+
+def find_wood_tile(pawn: Pawn, radius: int):
+    global wood_position
+    wood_position = find_tile(pawn, radius, Constants.RESOURCE_TYPES.WOOD)
+
+
+def find_coal_tile(pawn: Pawn, radius: int):
+    global coal_position
+    coal_position = find_tile(pawn, radius, Constants.RESOURCE_TYPES.COAL)
+
+
+def move_to_position(pawn: Pawn, position: Position, excludeDir: List[DIRECTIONS] = None) -> Optional[Tile]:
+    if excludeDir is None:
+        excludeDir = []
+    if can_move_to(pawn, pawn.pos.direction_to(position)):
+        return gameboard.get_tile_by_pos(pawn.pos.translate(pawn.pos.direction_to(position), 1))
+    else:
+        direction = pawn.pos.direction_to(position)
+        if in_range_pos(pawn.pos.translate(rotate_dir(direction), 1)):
+            return gameboard.get_tile_by_pos(pawn.pos.translate(rotate_dir(direction), 1))
+
+
+def rotate_dir(dir: DIRECTIONS) -> DIRECTIONS:
+    if dir == DIRECTIONS.EAST:
+        return DIRECTIONS.SOUTH
+    if dir == DIRECTIONS.SOUTH:
+        return DIRECTIONS.WEST
+    if dir == DIRECTIONS.WEST:
+        return DIRECTIONS.NORTH
+    if dir == DIRECTIONS.NORTH:
+        return DIRECTIONS.EAST
+    return DIRECTIONS.CENTER
+
+
+def find_closest_resource_tile(player: Player, pawn: Pawn, excludeDir: List[DIRECTIONS] = None) -> Optional[Tile]:
     # TODO check if it can reach resource tile
+    if excludeDir is None:
+        excludeDir = []
     closest_dist = math.inf
     closest_resource_tile = None
     for resource_tile in gameboard.resource_tiles:
         if not has_access_to_resource(resource_tile.resource, player):
             continue
         dist = resource_tile.pos.distance_to(pawn.pos)
-        if dist < closest_dist:
+        if dist < closest_dist and pawn.pos.direction_to(resource_tile.pos) not in excludeDir:
             closest_dist = dist
             closest_resource_tile = resource_tile
-    return closest_resource_tile
+    if closest_resource_tile is not None and can_move_to(pawn, pawn.pos.direction_to(closest_resource_tile.pos)):
+        return closest_resource_tile
+    elif closest_resource_tile is not None:
+        return find_closest_resource_tile(player, pawn, [*excludeDir, pawn.pos.direction_to(closest_resource_tile.pos)])
 
 
 def find_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
@@ -57,6 +111,8 @@ def too_much_fuel(city_tile: CityTile) -> bool:
     city = gameboard.own_cities.get(city_tile.cityid)
 
     fuel_needed = city.get_light_upkeep() * night_moves_left()
+    if fuel_needed < city.fuel:
+        actions.append(annotate.sidetext(f"City {city_tile.cityid} has enough fuel for the whole game"))
     return fuel_needed < city.fuel
 
 
@@ -112,6 +168,18 @@ def cities_going_to_have_enough_foul(player: Player, pawn: Pawn) -> bool:
                 if city is not None:
                     amount_of_fuel_needed += city.get_light_upkeep() * night_moves_left()
 
+    if amount_of_fuel < amount_of_fuel_needed:
+        actions.append(
+            annotate.sidetext(
+                f"On move {moveCount} at {pawn.pos.x} {pawn.pos.y}  {amount_of_fuel} {amount_of_fuel_needed}"
+            )
+        )
+        for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
+            for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
+                if in_range(x, y) and gameboard.get_tile(x, y).has_city():
+                    city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
+                    if city is not None:
+                        actions.append(annotate.x(x, y))
     return amount_of_fuel > amount_of_fuel_needed
 
 
@@ -119,11 +187,17 @@ def in_range(x: int, y: int):
     return x >= 0 and y >= 0 and x < gameboard.width and y < gameboard.height
 
 
+def in_range_pos(pos: Position):
+    return in_range(pos.x, pos.y)
+
+
 def can_move_to(ownPawn: Pawn, dir: DIRECTIONS) -> bool:
     """
     Check if the unit `ownUnit` can move in direction `dir` 1 step.
     """
 
+    if dir == DIRECTIONS.CENTER:  # can always stay put
+        return True
     endPosition = Position.translate(ownPawn.pos, dir, 1)
     tile = gameboard.get_tile_by_pos(endPosition)
     for pawn in gameboard.pawns:
@@ -144,7 +218,7 @@ def is_night():
 
 def night_moves_left():
     # TODO not quite right
-    return relu(moveCount % 40 - 30) + moveCount // 4
+    return relu((360 - moveCount) % 40 - 30) + ((360 - moveCount) // 40) * 10
 
 
 def has_access_to_resource(resource: Resource, player: Player) -> bool:
@@ -164,9 +238,11 @@ def agent(observation, configuration):
     global actions
     global gameboard
     global moveCount
+    global wood_position
+    global coal_position
 
     hardCityLimit = 24
-    hardUnitLimit = 8
+    hardUnitLimit = 10
 
     if moveCount == 0:
         time.sleep(5)
@@ -189,9 +265,35 @@ def agent(observation, configuration):
     actions = []
     gameboard = GameBoard(game_state, observation)
 
-    for pawn in gameboard.own_pawns:
+    for index, pawn in enumerate(gameboard.own_pawns):
         if pawn.is_worker() and pawn.can_act():
-            if (
+            if index == 0 and moveCount == 39 and len(gameboard.own_pawns) >= 2:
+                find_wood_tile(pawn, gameboard.width // 3)
+                actions.append(f"Moving to position {wood_position.x} {wood_position.y}")
+            elif index == 0 and moveCount == 119 and len(gameboard.own_pawns) >= 2 and wood_position is not None:
+                find_wood_tile(pawn, gameboard.width // 2)
+                actions.append(f"Moving to position {wood_position.x} {wood_position.y}")
+            elif (
+                index == 0
+                and moveCount == 159
+                and len(gameboard.own_pawns) >= 2
+                and has_access_to_resource(Resource(Constants.RESOURCE_TYPES.COAL, 1), player)
+            ):
+                find_coal_tile(pawn, gameboard.width // 2)
+                actions.append(f"Moving to position {coal_position.x} {coal_position.y}")
+            if index == 0 and wood_position is not None:
+                wood_tile = move_to_position(pawn, wood_position)
+                if wood_tile is not None:
+                    actions.append(pawn.move(pawn.pos.direction_to(wood_tile.pos)))
+                    if wood_position.distance_to(pawn.pos) <= 1:
+                        wood_position = None
+            elif index == 0 and coal_position is not None:
+                coal_tile = move_to_position(pawn, coal_position)
+                if coal_tile is not None:
+                    actions.append(pawn.move(pawn.pos.direction_to(coal_tile.pos)))
+                    if coal_position.distance_to(pawn.pos) <= 1:
+                        coal_position = None
+            elif (
                 pawn.get_cargo_space_left() == 0
                 and not is_night()
                 and cities_have_enough_foul(pawn)
@@ -218,9 +320,7 @@ def agent(observation, configuration):
             elif pawn.get_cargo_space_left() > 0:
                 # if the unit is a worker and we have space in cargo, lets find the nearest resource tile and try to mine it
                 closest_resource_tile = find_closest_resource_tile(player, pawn)
-                if closest_resource_tile is not None and can_move_to(
-                    pawn, pawn.pos.direction_to(closest_resource_tile.pos)
-                ):
+                if closest_resource_tile is not None:
                     actions.append(pawn.move(pawn.pos.direction_to(closest_resource_tile.pos)))
             else:
                 # if unit is a worker and there is no cargo space left, and we have cities, lets return to them

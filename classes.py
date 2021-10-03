@@ -1,4 +1,5 @@
-from typing import List, Optional
+from typing import Callable, List, Optional
+from lux import annotate
 from lux.game import Game, City
 from lux.game_objects import CityTile, Player, Unit
 from lux.game_map import DIRECTIONS, Cell, RESOURCE_TYPES, GameMap, Position
@@ -74,3 +75,10 @@ class GameBoard:
 
     def get_tile_by_pos(self, pos: Position) -> Tile:
         return self.tiles[pos.y + pos.x * self.width]
+
+    def annotate_city(self, id: str, function: Callable[[int, int], str]) -> List[str]:
+        actions = []
+        for city_tile in self.own_city_tiles:
+            if id == city_tile.citytile.cityid:
+                actions.append(function(city_tile.pos.x, city_tile.pos.y))
+        return actions

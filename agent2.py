@@ -22,18 +22,23 @@ moveCount = 0
 logging.basicConfig(filename="log.log", level=logging.INFO, filemode="w")
 
 
-def find_closest_resource_tile(player: Player, pawn: Pawn) -> Optional[Tile]:
+def find_closest_resource_tile(player: Player, pawn: Pawn, excludeDir: List[DIRECTIONS] = None) -> Optional[Tile]:
     # TODO check if it can reach resource tile
+    if excludeDir is None:
+        excludeDir = []
     closest_dist = math.inf
     closest_resource_tile = None
     for resource_tile in gameboard.resource_tiles:
         if not has_access_to_resource(resource_tile.resource, player):
             continue
         dist = resource_tile.pos.distance_to(pawn.pos)
-        if dist < closest_dist:
+        if dist < closest_dist and pawn.pos.direction_to(resource_tile.pos) not in excludeDir:
             closest_dist = dist
             closest_resource_tile = resource_tile
-    return closest_resource_tile
+    if closest_resource_tile is not None and can_move_to(pawn, pawn.pos.direction_to(closest_resource_tile.pos)):
+        return closest_resource_tile
+    elif closest_resource_tile is not None:
+        return find_closest_resource_tile(player, pawn, [*excludeDir, pawn.pos.direction_to(closest_resource_tile.pos)])
 
 
 def find_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
@@ -57,6 +62,8 @@ def too_much_fuel(city_tile: CityTile) -> bool:
     city = gameboard.own_cities.get(city_tile.cityid)
 
     fuel_needed = city.get_light_upkeep() * night_moves_left()
+    if fuel_needed < city.fuel:
+        actions.append(annotate.sidetext(f"City {city_tile.cityid} has enough fuel for the whole game"))
     return fuel_needed < city.fuel
 
 
@@ -82,11 +89,44 @@ def find_closest_city(pawn: Pawn, excludeDir: List[DIRECTIONS] = None) -> Option
 
 
 def cities_have_enough_foul(pawn: Pawn) -> bool:
+    # is not night so can assume fuel needed is for 10 moves
+    closest_city_tile = find_closest_city(pawn)
+    for id, city in gameboard.own_cities.items():
+        if (
+            city.get_light_upkeep() * 10 > city.fuel
+            and closest_city_tile is not None
+            and id == closest_city_tile.citytile.cityid
+        ):
+            return False
     return True
 
 
 def cities_going_to_have_enough_foul(player: Player, pawn: Pawn) -> bool:
-    return True
+    # first check the proximity for amount of foul
+    radius = gameboard.width // 4
+    amount_of_fuel = 0
+    for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
+        for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
+            if in_range(x, y) and gameboard.get_tile(x, y).has_resource():
+                resource = gameboard.get_tile(x, y).resource
+                if has_access_to_resource(resource, player):
+                    amount_of_fuel += resource.amount
+    amount_of_fuel_needed = 0
+    for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
+        for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
+            if in_range(x, y) and gameboard.get_tile(x, y).has_city():
+                city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
+                if city is not None:
+                    amount_of_fuel_needed += city.get_light_upkeep() * night_moves_left()
+
+    if amount_of_fuel < amount_of_fuel_needed:
+        for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
+            for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
+                if in_range(x, y) and gameboard.get_tile(x, y).has_city():
+                    city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
+                    if city is not None:
+                        actions.append(annotate.x(x, y))
+    return amount_of_fuel > amount_of_fuel_needed
 
 
 def in_range(x: int, y: int):
@@ -118,7 +158,7 @@ def is_night():
 
 def night_moves_left():
     # TODO not quite right
-    return relu(moveCount % 40 - 30) + moveCount // 4
+    return relu((360 - moveCount) % 40 - 30) + ((360 - moveCount) // 40) * 10
 
 
 def has_access_to_resource(resource: Resource, player: Player) -> bool:
@@ -192,9 +232,7 @@ def agent(observation, configuration):
             elif pawn.get_cargo_space_left() > 0:
                 # if the unit is a worker and we have space in cargo, lets find the nearest resource tile and try to mine it
                 closest_resource_tile = find_closest_resource_tile(player, pawn)
-                if closest_resource_tile is not None and can_move_to(
-                    pawn, pawn.pos.direction_to(closest_resource_tile.pos)
-                ):
+                if closest_resource_tile is not None:
                     actions.append(pawn.move(pawn.pos.direction_to(closest_resource_tile.pos)))
             else:
                 # if unit is a worker and there is no cargo space left, and we have cities, lets return to them
