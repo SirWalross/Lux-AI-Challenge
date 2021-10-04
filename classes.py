@@ -1,8 +1,8 @@
 from typing import Callable, List, Optional
-from lux import annotate
-from lux.game import Game, City
-from lux.game_objects import CityTile, Player, Unit
-from lux.game_map import DIRECTIONS, Cell, RESOURCE_TYPES, GameMap, Position
+from lux.game import Game
+from lux.game_objects import CityTile, Unit
+from lux.game_map import DIRECTIONS, Cell, GameMap, Position
+
 
 class Pawn:
     def __init__(self, unit: Unit):
@@ -10,7 +10,7 @@ class Pawn:
         self._next_move: Position = self.unit.pos
         self.team = self.unit.team
         self.pos = self.unit.pos
-        self.id = self.unit.id
+        self.city_id = self.unit.id
 
     @property
     def next_move(self) -> Position:
@@ -19,24 +19,24 @@ class Pawn:
     @next_move.setter
     def next_move(self, pos: Position) -> None:
         self._next_move = pos
-    
+
     def is_worker(self) -> bool:
         return self.unit.is_worker()
-    
+
     def can_act(self) -> bool:
         return self.unit.can_act()
-    
+
     def can_build(self, game_map: GameMap) -> bool:
         return self.unit.can_build(game_map)
-    
+
     def get_cargo_space_left(self) -> int:
         return self.unit.get_cargo_space_left()
-    
+
     def build_city(self) -> str:
         return self.unit.build_city()
-    
-    def move(self, dir: DIRECTIONS) -> str:
-        return self.unit.move(dir)
+
+    def move(self, direction: DIRECTIONS) -> str:
+        return self.unit.move(direction)
 
 
 class Tile:
@@ -76,9 +76,9 @@ class GameBoard:
     def get_tile_by_pos(self, pos: Position) -> Tile:
         return self.tiles[pos.y + pos.x * self.width]
 
-    def annotate_city(self, id: str, function: Callable[[int, int], str]) -> List[str]:
+    def annotate_city(self, city_id: str, function: Callable[[int, int], str]) -> List[str]:
         actions = []
         for city_tile in self.own_city_tiles:
-            if id == city_tile.citytile.cityid:
+            if city_id == city_tile.citytile.cityid:
                 actions.append(function(city_tile.pos.x, city_tile.pos.y))
         return actions

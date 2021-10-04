@@ -147,7 +147,7 @@ def can_move_to(ownPawn: Pawn, dir: DIRECTIONS) -> bool:
         elif tile.has_city() and tile.team != ownPawn.team:
             return False
     actions.append(annotate.line(ownPawn.pos.x, ownPawn.pos.y, endPosition.x, endPosition.y))
-    logging.info(f"Moving unit {ownPawn.id} to {endPosition.y}, {endPosition.x}")
+    logging.info(f"Moving unit {ownPawn.city_id} to {endPosition.y}, {endPosition.x}")
     ownPawn.next_move = endPosition
     return True
 
