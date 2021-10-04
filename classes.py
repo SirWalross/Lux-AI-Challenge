@@ -7,10 +7,10 @@ from lux.game_map import DIRECTIONS, Cell, GameMap, Position
 class Pawn:
     def __init__(self, unit: Unit):
         self.unit = unit
-        self._next_move: Position = self.unit.pos
+        self.next_move: Position = Position(self.unit.pos.x, self.unit.pos.y)
         self.team = self.unit.team
-        self.pos = self.unit.pos
-        self.city_id = self.unit.id
+        self.pos = Position(self.unit.pos.x, self.unit.pos.y)
+        self.pawn_id = self.unit.id
 
     @property
     def next_move(self) -> Position:

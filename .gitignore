@@ -2,5 +2,5 @@
 errorlogs
 replays
 __pycache__
-log.log
+log*.log
 replay.json
