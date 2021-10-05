@@ -1,5 +1,5 @@
 import math
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import logging
 import time
 from lux.game import Game
@@ -19,7 +19,7 @@ moveCount = 0
 wood_position = None
 coal_position = None
 
-HARD_CITY_LIMIT = 24
+HARD_CITY_LIMIT = 40
 HARD_UNIT_LIMIT = 10
 
 logging.basicConfig(filename="log.log", level=logging.INFO, filemode="w")
@@ -95,8 +95,10 @@ def find_closest_resource_tile(player: Player, pawn: Pawn, exclude_dir: List[DIR
     return None
 
 
-def find_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
+def find_closest_empty_tile(pawn: Pawn, exclude_dir: List[DIRECTIONS] = None) -> Optional[Tile]:
     # TODO check if it can reach empty tile
+    if exclude_dir is None:
+        exclude_dir = []
     closest_dist = math.inf
     closest_empty_tile = None
     for x in range(gameboard.width):
@@ -104,11 +106,30 @@ def find_closest_empty_tile_next_to_city(pawn: Pawn) -> Optional[Tile]:
             tile = gameboard.get_tile(x, y)
             if tile.has_resource() or tile.has_city():
                 continue
-            dist = tile.pos.distance_to(pawn.pos)
-            if dist < closest_dist:
+            dist = tile.pos.distance_to(pawn.pos) * (2 if not neighbouring_city(tile, pawn.team) else 1) * (1.2 if not neighbouring_resource(tile) else 1)
+            if dist < closest_dist and pawn.pos.direction_to(tile.pos) not in exclude_dir:
                 closest_dist = dist
                 closest_empty_tile = tile
-    return closest_empty_tile
+    if closest_empty_tile is not None and can_move_to(pawn, pawn.pos.direction_to(closest_empty_tile.pos)):
+        return closest_empty_tile
+    elif closest_empty_tile is not None:
+        return find_closest_empty_tile(pawn, [*exclude_dir, pawn.pos.direction_to(closest_empty_tile.pos)])
+    return None
+
+
+def neighbouring_city(tile: Tile, team: int) -> bool:
+    for x in [tile.pos.x - 1, tile.pos.x + 1]:
+        for y in [tile.pos.y - 1, tile.pos.y + 1]:
+            if in_range(x, y) and gameboard.get_tile(x, y).has_own_city(team):
+                return True
+    return False
+
+def neighbouring_resource(tile: Tile) -> bool:
+    for x in [tile.pos.x - 1, tile.pos.x + 1]:
+        for y in [tile.pos.y - 1, tile.pos.y + 1]:
+            if in_range(x, y) and gameboard.get_tile(x, y).has_resource():
+                return True
+    return False
 
 
 def too_much_fuel(city_tile: CityTile) -> bool:
@@ -124,21 +145,20 @@ def too_much_fuel(city_tile: CityTile) -> bool:
 def find_closest_city(pawn: Pawn, exclude_dir: List[DIRECTIONS] = None) -> Optional[Tile]:
     if exclude_dir is None:
         exclude_dir = []
-    closest_dist = math.inf
+    best_value = math.inf
     closest_city_tile = None
     for city_tile in gameboard.own_city_tiles:
-        dist = city_tile.pos.distance_to(pawn.pos)
+        city = gameboard.get_city(city_tile.citytile.cityid)
+        value = city_tile.pos.distance_to(pawn.pos) + city.fuel / (100 * city.get_light_upkeep())
         if (
-            dist < closest_dist
+            value < best_value
             and pawn.pos.direction_to(city_tile.pos) not in exclude_dir
             and pawn.team == city_tile.team
             and not too_much_fuel(city_tile.citytile)
         ):
-            closest_dist = dist
+            best_value = value
             closest_city_tile = city_tile
-    if closest_city_tile is not None and can_move_to(
-        pawn, pawn.pos.direction_to(closest_city_tile.pos), dont_update=True
-    ):
+    if closest_city_tile is not None and can_move_to(pawn, pawn.pos.direction_to(closest_city_tile.pos)):
         return closest_city_tile
     elif closest_city_tile is not None:
         return find_closest_city(pawn, [*exclude_dir, pawn.pos.direction_to(closest_city_tile.pos)])
@@ -147,35 +167,57 @@ def find_closest_city(pawn: Pawn, exclude_dir: List[DIRECTIONS] = None) -> Optio
 def cities_have_enough_foul(pawn: Pawn) -> bool:
     # is not night so can assume fuel needed is for 10 moves
     closest_city_tile = find_closest_city(pawn)
-    for city_id, city in gameboard.own_cities.items():
-        if (
-            city.get_light_upkeep() * 10 > city.fuel
-            and closest_city_tile is not None
-            and city_id == closest_city_tile.citytile.cityid
-        ):
+    if closest_city_tile is not None:
+        distance = closest_city_tile.pos.distance_to(pawn.pos)
+        city = gameboard.get_city(closest_city_tile.citytile.cityid)
+        if distance < 5 and city is not None and city.get_light_upkeep() * 10 > city.fuel:
             return False
     return True
 
+def city_fuel_levels(pawn: Pawn) -> Tuple[int, int]:
+    radius = gameboard.width // 4
+    amount_of_fuel = 0
+    fuel_needed = 0
+    for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
+        for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
+            if in_range(x, y) and gameboard.get_tile(x, y).has_city():
+                city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
+                if city is not None:
+                    fuel_needed += city.get_light_upkeep() * 5 / (1 + pawn.pos.distance_to(Position(x, y)))
+                    amount_of_fuel += city.fuel
+    return amount_of_fuel, fuel_needed
 
-def no_city_in_vicinity(pawn: Pawn) -> bool:
-    closest_dist = math.inf
-    for city_tile in gameboard.own_city_tiles:
-        dist = city_tile.pos.distance_to(pawn.pos)
-        if dist < closest_dist and pawn.team == city_tile.team and not too_much_fuel(city_tile.citytile):
+
+def distance_to_nearest_city(pawn: Pawn) -> int:
+    closest_dist = 10000
+    for tile in gameboard.own_city_tiles:
+        dist = tile.pos.distance_to(pawn.pos)
+        if dist < closest_dist and pawn.team == tile.team and not too_much_fuel(tile.citytile):
             closest_dist = dist
-    return closest_dist >= 5
+    return int(closest_dist)
 
 
-def cities_going_to_have_enough_foul(player: Player, pawn: Pawn) -> bool:
+def distance_to_nearest_empty_tile(pawn: Pawn) -> int:
+    closest_dist = math.inf
+    for tile in gameboard.tiles:
+        dist = tile.pos.distance_to(pawn.pos)
+        if dist < closest_dist and not tile.has_city() and not tile.has_resource():
+            closest_dist = dist
+    return int(closest_dist)
+
+
+def cities_fuel_amount(player: Player, pawn: Pawn) -> Tuple[int, int, int]:
     # first check the proximity for amount of foul
     radius = gameboard.width // 4
     amount_of_fuel = 0
+    amount_of_fuel_with_all_resources = 0
     for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
         for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
             if in_range(x, y) and gameboard.get_tile(x, y).has_resource():
                 resource = gameboard.get_tile(x, y).resource
                 if has_access_to_resource(resource, player):
                     amount_of_fuel += resource.amount
+                amount_of_fuel_with_all_resources += resource.amount
     amount_of_fuel_needed = 0
     for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
         for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
@@ -184,19 +226,7 @@ def cities_going_to_have_enough_foul(player: Player, pawn: Pawn) -> bool:
                 if city is not None:
                     amount_of_fuel_needed += city.get_light_upkeep() * night_moves_left()
 
-    if amount_of_fuel < amount_of_fuel_needed:
-        # actions.append(
-        #     annotate.sidetext(
-        #         f"On move {moveCount} at {pawn.pos.x} {pawn.pos.y}  {amount_of_fuel} {amount_of_fuel_needed}"
-        #     )
-        # )
-        for x in range(pawn.pos.x - radius, pawn.pos.x + radius + 1):
-            for y in range(pawn.pos.y - radius, pawn.pos.y + radius + 1):
-                if in_range(x, y) and gameboard.get_tile(x, y).has_city():
-                    city = gameboard.own_cities.get(gameboard.get_tile(x, y).citytile.cityid)
-                    if city is not None:
-                        actions.append(annotate.x(x, y))
-    return amount_of_fuel > amount_of_fuel_needed
+    return amount_of_fuel, amount_of_fuel_with_all_resources, amount_of_fuel_needed
 
 
 def in_range(x: int, y: int):
@@ -207,7 +237,7 @@ def in_range_pos(pos: Position):
     return in_range(pos.x, pos.y)
 
 
-def can_move_to(own_pawn: Pawn, direction: DIRECTIONS, *, dont_update=False) -> bool:
+def can_move_to(own_pawn: Pawn, direction: DIRECTIONS) -> bool:
     """
     Check if the unit `ownUnit` can move in direction `dir` 1 step.
     """
@@ -223,9 +253,15 @@ def can_move_to(own_pawn: Pawn, direction: DIRECTIONS, *, dont_update=False) -> 
         elif tile.has_city() and tile.team != own_pawn.team:
             return False
     actions.append(annotate.line(own_pawn.pos.x, own_pawn.pos.y, end_position.x, end_position.y))
-    if not dont_update:
-        own_pawn.next_move = end_position
     return True
+
+
+def update_move(pawn: Pawn, tile: Tile) -> None:
+    """
+    Update the `next_move` property of the pawn. Needed for collision checks
+    """
+    end_position = Position.translate(pawn.pos, pawn.pos.direction_to(tile.pos), 1)
+    pawn.next_move = end_position
 
 
 def is_night():
@@ -247,6 +283,33 @@ def has_access_to_resource(resource: Resource, player: Player) -> bool:
 
 def relu(value: int):
     return 0 if value < 0 else value
+
+
+def should_build_city(player: Player, pawn: Pawn) -> bool:
+    if pawn.get_cargo_space_left() != 0:
+        return False
+    score = 0
+
+    # first check if cities in vicinites have enough fuel
+    fuel_amount, fuel_needed = city_fuel_levels(pawn)
+    score -= 100 * fuel_needed / (fuel_amount + 1)
+
+    # second check if not enough fuel to support city
+    fuel_amount, all_fuel_amount, fuel_needed = cities_fuel_amount(player, pawn)
+    score += (all_fuel_amount - fuel_needed + fuel_amount - fuel_needed) / 2
+
+    # third check how long to an empty tile
+    distance = distance_to_nearest_empty_tile(pawn)
+    score -= 100 * distance
+
+    # fourth check long to next city
+    distance = distance_to_nearest_city(pawn)
+    score += 100 * distance
+
+    # fifth check if it is night
+    score -= 10000 if is_night() else 0
+
+    return score > 0
 
 
 def agent(observation, configuration):
@@ -296,6 +359,7 @@ def agent(observation, configuration):
             if index == 0 and wood_position is not None:
                 wood_tile = move_to_position(pawn, wood_position)
                 if wood_tile is not None:
+                    update_move(pawn, wood_tile)
                     actions.append(pawn.move(pawn.pos.direction_to(wood_tile.pos)))
                     if wood_position.distance_to(pawn.pos) <= 1:
                         wood_position = None
@@ -304,32 +368,31 @@ def agent(observation, configuration):
             elif index == 0 and coal_position is not None:
                 coal_tile = move_to_position(pawn, coal_position)
                 if coal_tile is not None:
+                    update_move(pawn, coal_tile)
                     actions.append(pawn.move(pawn.pos.direction_to(coal_tile.pos)))
                     if coal_position.distance_to(pawn.pos) <= 1:
                         coal_position = None
                 else:
                     logging.info(f"Unit {pawn.pawn_id} tried to move to coal tile, in move {moveCount}, but couldnt!")
-            elif (
-                pawn.get_cargo_space_left() == 0
-                and cities_have_enough_foul(pawn)
-                and cities_going_to_have_enough_foul(player, pawn)
-                and HARD_CITY_LIMIT > player.city_tile_count
-                and not is_night()
-            ):
+            elif should_build_city(player, pawn):
                 # try and build city
-                closest_empty_tile = find_closest_empty_tile_next_to_city(pawn)
+                closest_empty_tile = find_closest_empty_tile(pawn)
                 if pawn.can_build(game_state.map):
                     actions.append(pawn.build_city())
                 elif closest_empty_tile is not None and can_move_to(
                     pawn, pawn.pos.direction_to(closest_empty_tile.pos)
                 ):
+                    update_move(pawn, closest_empty_tile)
                     actions.append(pawn.move(pawn.pos.direction_to(closest_empty_tile.pos)))
                 else:
                     logging.info(f"Unit {pawn.pawn_id} tried to build city, in move {moveCount}, but couldnt!")
-            elif pawn.get_cargo_space_left() > 0:
+            elif pawn.get_cargo_space_left() > 0 and (
+                cities_have_enough_foul(pawn) or pawn.get_cargo_space_left() == 100
+            ):
                 # if the unit is a worker and we have space in cargo, lets find the nearest resource tile and try to mine it
                 closest_resource_tile = find_closest_resource_tile(player, pawn)
                 if closest_resource_tile is not None:
+                    update_move(pawn, closest_resource_tile)
                     actions.append(pawn.move(pawn.pos.direction_to(closest_resource_tile.pos)))
                 else:
                     logging.info(
@@ -340,6 +403,7 @@ def agent(observation, configuration):
                 if len(player.cities) > 0:
                     closest_city_tile = find_closest_city(pawn)
                     if closest_city_tile is not None:
+                        update_move(pawn, closest_city_tile)
                         actions.append(pawn.move(pawn.pos.direction_to(closest_city_tile.pos)))
                     else:
                         logging.info(f"Unit {pawn.pawn_id} tried to move to city, in move {moveCount}, but couldnt!")

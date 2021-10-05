@@ -1,6 +1,6 @@
 from typing import Callable, List, Optional
 from lux.game import Game
-from lux.game_objects import CityTile, Unit
+from lux.game_objects import City, CityTile, Unit
 from lux.game_map import DIRECTIONS, Cell, GameMap, Position
 
 
@@ -52,6 +52,9 @@ class Tile:
 
     def has_city(self) -> bool:
         return self.cell.citytile is not None
+    
+    def has_own_city(self, team: int) -> bool:
+        return self.cell.citytile and self.cell.citytile.team == team 
 
 
 class GameBoard:
@@ -82,3 +85,7 @@ class GameBoard:
             if city_id == city_tile.citytile.cityid:
                 actions.append(function(city_tile.pos.x, city_tile.pos.y))
         return actions
+
+    def get_city(self, city_id: str) -> Optional[City]:
+        return self.own_cities.get(city_id)
+    

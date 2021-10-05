@@ -17,7 +17,7 @@
             "type": "command",
             "command": "shellCommand.execute",
             "args": {
-                "command": "ps aux | grep \"python3 main.py\"  -m 1 | cut -b 9-15"
+                "command": "ps aux | grep \"python3 main.py\"  -m2 | tail -n1 | cut -b 9-15"
             }
         }
     ]
